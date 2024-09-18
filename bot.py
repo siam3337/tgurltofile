@@ -1,48 +1,57 @@
 from telethon import TelegramClient, events
-import os
+from telethon.errors import FloodWaitError
 import asyncio
+import os
+import time
 from http.server import SimpleHTTPRequestHandler, HTTPServer
 from threading import Thread
 
 # Telegram bot setup
-api_id = '22146262'
-api_hash = 'f7bf31f583cf386f0d3d7732727a18d7'
-bot_token = '6627231473:AAEovoZqjl7ps3ezrF-9Au1iQhiKiWYchWI'
+api_id = os.getenv("22146262")
+api_hash = os.getenv("f7bf31f583cf386f0d3d7732727a18d7")
+bot_token = os.getenv("6627231473:AAEovoZqjl7ps3ezrF-9Au1iQhiKiWYchWI")
 
-client = TelegramClient('bot', api_id, api_hash).start(bot_token=bot_token)
+client = TelegramClient('bot', api_id, api_hash)
 
 @client.on(events.NewMessage(pattern='/start'))
 async def start(event):
-    await event.respond('Send me a file, and I will upload it for you!')
+    await event.respond('Hello! Send me a URL to upload a file.')
 
 @client.on(events.NewMessage)
-async def handle_file(event):
-    if event.message.file:
-        file = await event.message.download_media()
-        file_size = os.path.getsize(file)
-        if file_size <= 2 * 1024 * 1024 * 1024:  # Check if file size <= 2GB
-            await event.respond('File received! Uploading...')
-            # Add your file processing logic here
-            await event.respond('File upload completed.')
-        else:
-            await event.respond('File size exceeds 2GB limit.')
+async def handle_message(event):
+    if event.message.message.startswith('http'):
+        await event.respond('URL received. Starting file upload...')
+        # Add URL file uploading logic here
+        await event.respond('File uploaded successfully!')
     else:
-        await event.respond('Please send a file.')
+        await event.respond('Please send a valid URL.')
+
+# Function to handle FloodWaitError
+async def start_bot():
+    try:
+        await client.start(bot_token=bot_token)
+        print("Bot started successfully!")
+        await client.run_until_disconnected()
+    except FloodWaitError as e:
+        print(f"FloodWaitError: Waiting for {e.seconds} seconds.")
+        time.sleep(e.seconds)  # Wait for the required time
+        await start_bot()  # Retry after the wait time
 
 # Function to run the simple health check server
 def run_health_check_server():
     server = HTTPServer(('0.0.0.0', 8000), SimpleHTTPRequestHandler)
+    print("Health check server is running on port 8000.")
     server.serve_forever()
 
-# Main entry point
+# Main function
 async def main():
     # Start the health check server in a separate thread
     server_thread = Thread(target=run_health_check_server)
     server_thread.daemon = True
     server_thread.start()
 
-    # Start the Telegram bot and run it until disconnected
-    await client.run_until_disconnected()
+    # Start the Telegram bot
+    await start_bot()
 
 if __name__ == '__main__':
     # Run the asyncio event loop
