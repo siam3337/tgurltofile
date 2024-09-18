@@ -1,7 +1,8 @@
 from telethon import TelegramClient, events
 import os
-import threading
+import asyncio
 from http.server import SimpleHTTPRequestHandler, HTTPServer
+from threading import Thread
 
 # Telegram bot setup
 api_id = '22146262'
@@ -28,26 +29,21 @@ async def handle_file(event):
     else:
         await event.respond('Please send a file.')
 
-# Function to run the Telegram bot
-def run_telegram_bot():
-    client.run_until_disconnected()
-
-# Simple HTTP server for health check
-class HealthCheckHandler(SimpleHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b'OK')
-
+# Function to run the simple health check server
 def run_health_check_server():
-    server = HTTPServer(('0.0.0.0', 8000), HealthCheckHandler)
+    server = HTTPServer(('0.0.0.0', 8000), SimpleHTTPRequestHandler)
     server.serve_forever()
 
-# Run the bot and web server concurrently
-if __name__ == "__main__":
-    # Start the Telegram bot in a separate thread
-    bot_thread = threading.Thread(target=run_telegram_bot)
-    bot_thread.start()
+# Main entry point
+async def main():
+    # Start the health check server in a separate thread
+    server_thread = Thread(target=run_health_check_server)
+    server_thread.daemon = True
+    server_thread.start()
 
-    # Start the health check server
-    run_health_check_server()
+    # Start the Telegram bot and run it until disconnected
+    await client.run_until_disconnected()
+
+if __name__ == '__main__':
+    # Run the asyncio event loop
+    asyncio.run(main())
