@@ -7,9 +7,12 @@ from http.server import SimpleHTTPRequestHandler, HTTPServer
 from threading import Thread
 
 # Telegram bot setup
-api_id = os.getenv("22146262")
-api_hash = os.getenv("f7bf31f583cf386f0d3d7732727a18d7")
-bot_token = os.getenv("6627231473:AAEovoZqjl7ps3ezrF-9Au1iQhiKiWYchWI")
+api_id = os.getenv("API_ID")  # You should define API_ID in your environment variables
+api_hash = os.getenv("API_HASH")  # You should define API_HASH in your environment variables
+bot_token = os.getenv("BOT_TOKEN")  # You should define BOT_TOKEN in your environment variables
+
+if not api_id or not api_hash or not bot_token:
+    raise ValueError("Your API ID, Hash, or Bot Token cannot be empty. Ensure environment variables are set correctly.")
 
 client = TelegramClient('bot', api_id, api_hash)
 
