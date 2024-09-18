@@ -13,5 +13,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the code
 COPY . .
 
-# Command to run the bot directly (no gunicorn or port needed)
+# Command to run the bot and web server
 CMD ["python", "bot.py"]
