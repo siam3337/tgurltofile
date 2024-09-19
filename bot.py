@@ -1,6 +1,5 @@
 from telethon import TelegramClient, events
 from telethon.errors import FloodWaitError
-from telethon.tl.types import DocumentAttributeFilename
 import asyncio
 import os
 import time
@@ -18,33 +17,7 @@ if not api_id or not api_hash or not bot_token:
 
 client = TelegramClient('bot', api_id, api_hash)
 
-@client.on(events.NewMessage(pattern='/start'))
-async def start(event):
-    await event.respond('Hello! Send me a URL to upload a file.')
-
-@client.on(events.NewMessage)
-async def handle_message(event):
-    if event.message.message.startswith('http'):
-        await event.respond('URL received. Starting file download...')
-
-        url = event.message.message  # Get the URL from the message
-        file_name = url.split('/')[-1]  # Extract a file name from the URL
-
-        try:
-            # Download the file from the URL and show download progress
-            await download_file_with_progress(event, url, file_name)
-
-            # Send the file to the chat and track upload progress
-            await send_file_with_progress(event, file_name)
-
-            # Delete the file after sending
-            os.remove(file_name)
-        except Exception as e:
-            await event.respond(f"An error occurred: {str(e)}")
-    else:
-        await event.respond('Please send a valid URL.')
-
-# Function to download file with progress reporting in terminal and bot
+# Function to handle file download with progress reporting
 async def download_file_with_progress(event, url, file_name):
     file_data = requests.get(url, stream=True)
     total_size = int(file_data.headers.get('content-length', 0))
@@ -60,32 +33,44 @@ async def download_file_with_progress(event, url, file_name):
             # Print download progress in terminal
             print(f"Downloading... {download_percentage:.2f}%")
 
-            # Update progress message in the bot
-            await progress_message.edit(f"Downloading... {download_percentage:.2f}%")
+            # Update progress message in the bot, but only if the percentage has changed and is less than 100%
+            if download_percentage < 100:
+                await progress_message.edit(f"Downloading... {download_percentage:.2f}%")
 
+    # Final update after download completes
     await progress_message.edit(f"Download complete! Starting upload...")
 
-# Function to send file with progress reporting in terminal and bot
-async def send_file_with_progress(event, file_path):
-    file_name = os.path.basename(file_path)
-    progress_message = await event.respond("Uploading... 0%")  # Initial message for upload progress
+# Event handler for '/start' command
+@client.on(events.NewMessage(pattern='/start'))
+async def start(event):
+    await event.respond('Hello! Send me a URL to upload a file.')
 
-    def progress_callback(current, total):
-        upload_percentage = (current / total) * 100
-        print(f"Uploading... {upload_percentage:.2f}%")  # Print upload progress in terminal
-        # Update progress message in the bot
-        asyncio.ensure_future(progress_message.edit(f"Uploading... {upload_percentage:.2f}%"))
+# Event handler for receiving URLs and uploading files
+@client.on(events.NewMessage)
+async def handle_message(event):
+    if event.message.message.startswith('http'):
+        await event.respond('URL received. Starting file download...')
+        
+        url = event.message.message  # Get the URL from the message
+        file_name = url.split('/')[-1]  # Extract a file name from the URL
+        
+        try:
+            # Download the file from the URL with progress reporting
+            await download_file_with_progress(event, url, file_name)
 
-    # Send the file using Telethon's upload with progress callback
-    await client.send_file(
-        event.chat_id,
-        file_path,
-        force_document=True,
-        attributes=[DocumentAttributeFilename(file_name)],
-        progress_callback=progress_callback  # Show progress in both terminal and bot
-    )
+            # Send the file to the chat
+            await client.send_file(event.chat_id, file_name)
 
-    await progress_message.edit("File uploaded successfully!")
+            # Notify user of upload completion
+            await event.respond('File uploaded successfully!')
+            
+            # Delete the file after sending
+            os.remove(file_name)
+
+        except Exception as e:
+            await event.respond(f"An error occurred: {str(e)}")
+    else:
+        await event.respond('Please send a valid URL.')
 
 # Function to handle FloodWaitError
 async def start_bot():
