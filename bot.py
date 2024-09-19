@@ -2,6 +2,8 @@ import os
 from telethon import TelegramClient, events
 import yt_dlp
 import asyncio
+from flask import Flask
+from threading import Thread
 
 # Your Telegram API credentials from my.telegram.org
 api_id = os.getenv("API_ID")
@@ -63,6 +65,20 @@ async def handle_video(event):
     
     # Clean up the downloaded file
     os.remove(file_path)
+
+# Flask app to respond to health checks
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return "Bot is running", 200
+
+# Function to run Flask app in a separate thread
+def run_flask():
+    app.run(host="0.0.0.0", port=8000)
+
+# Start the Flask app in a separate thread
+Thread(target=run_flask).start()
 
 # Start the bot
 print("Bot is running...")
