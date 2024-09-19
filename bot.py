@@ -3,7 +3,7 @@ from telethon import TelegramClient, events
 import yt_dlp
 import asyncio
 from flask import Flask, send_from_directory
-from threading import Thread
+from urllib.parse import quote
 
 # Your Telegram API credentials from my.telegram.org
 api_id = os.getenv("API_ID")
@@ -12,6 +12,9 @@ bot_token = os.getenv("BOT_TOKEN")
 
 # Initialize the bot
 bot = TelegramClient('bot', api_id, api_hash).start(bot_token=bot_token)
+
+# Flask app to serve files
+app = Flask(__name__)
 
 # yt-dlp options
 ydl_opts = {
@@ -29,7 +32,7 @@ async def download_video(url):
 @bot.on(events.NewMessage(pattern='/start'))
 async def start(event):
     await event.respond("Hello! Send me a video link and I'll download it for you!")
-
+    
 @bot.on(events.NewMessage)
 async def handle_video(event):
     url = event.message.message.strip()
@@ -48,7 +51,7 @@ async def handle_video(event):
         await event.respond(f"Error downloading video: {str(e)}")
         return
 
-    # Check the file size
+    # Check the file size and upload accordingly
     file_size = os.path.getsize(file_path)
     max_file_size = 50 * 1024 * 1024  # 50 MB
 
@@ -61,31 +64,25 @@ async def handle_video(event):
         except Exception as e:
             await event.respond(f"Error uploading video: {str(e)}")
     else:
-        # Create a download link for large files
-        download_link = f"https://sonic-bot.koyeb.app/download/{os.path.basename(file_path)}"
+        # Create a download link for files larger than 50 MB
+        encoded_filename = quote(os.path.basename(file_path))  # Encode the file name for the URL
+        download_link = f"https://sonic-bot.koyeb.app/download/{encoded_filename}"
         await event.respond(f"The video is too large to be sent directly. You can download it from this link: {download_link}")
     
     # Clean up the downloaded file
     os.remove(file_path)
 
-# Flask app to respond to health checks and provide downloads
-app = Flask(__name__)
-
-@app.route('/')
-def index():
-    return "Bot is running", 200
-
+# Flask route to serve the downloaded file
 @app.route('/download/<filename>')
 def download_file(filename):
     return send_from_directory('downloads', filename, as_attachment=True)
 
-# Function to run Flask app in a separate thread
-def run_flask():
+# Start the bot and the Flask server
+if __name__ == '__main__':
+    print("Bot and Flask server are running...")
+
+    # Run the Telegram bot
+    bot.start()
+
+    # Run Flask on port 8000
     app.run(host="0.0.0.0", port=8000)
-
-# Start the Flask app in a separate thread
-Thread(target=run_flask).start()
-
-# Start the bot
-print("Bot is running...")
-bot.run_until_disconnected()
