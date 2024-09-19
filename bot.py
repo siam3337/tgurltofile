@@ -18,9 +18,6 @@ if not api_id or not api_hash or not bot_token:
 
 client = TelegramClient('bot', api_id, api_hash)
 
-# Chunk size in bytes (example: 1 MB chunks)
-CHUNK_SIZE = 1024 * 1024
-
 @client.on(events.NewMessage(pattern='/start'))
 async def start(event):
     await event.respond('Hello! Send me a URL to upload a file.')
@@ -34,20 +31,20 @@ async def handle_message(event):
         file_name = url.split('/')[-1]  # Extract a file name from the URL
         
         try:
-            # Download the file from the URL in chunks
+            # Download the file from the URL
             file_data = requests.get(url, stream=True)
             if file_data.status_code == 200:
                 total_size = int(file_data.headers.get('content-length', 0))
                 downloaded_size = 0
                 with open(file_name, 'wb') as file:
-                    for chunk in file_data.iter_content(chunk_size=CHUNK_SIZE):
+                    for chunk in file_data.iter_content(chunk_size=1024 * 1024):  # 1MB chunks
                         file.write(chunk)
                         downloaded_size += len(chunk)
                         print(f"Downloaded {downloaded_size}/{total_size} bytes")
                 
-                # Send the file to the chat in chunks
-                await send_file_in_chunks(event.chat_id, file_name)
-
+                # Send the file to the chat and track progress
+                await event.respond('Starting file upload...')
+                await send_file_with_progress(event.chat_id, file_name, total_size)
                 await event.respond('File uploaded successfully!')
                 
                 # Delete the file after sending
@@ -60,32 +57,23 @@ async def handle_message(event):
     else:
         await event.respond('Please send a valid URL.')
 
-# Function to send the file in chunks
-async def send_file_in_chunks(chat_id, file_path):
-    total_size = os.path.getsize(file_path)
+# Function to send file with progress reporting
+async def send_file_with_progress(chat_id, file_path, total_size):
     file_name = os.path.basename(file_path)
 
-    # Send the file using Telethon's upload functionality
-    with open(file_path, 'rb') as file:
-        uploaded_size = 0
-        while uploaded_size < total_size:
-            # Calculate how much to upload in this iteration
-            chunk = file.read(CHUNK_SIZE)
-            if not chunk:
-                break
-
-            # Upload the chunk as part of the file
-            await client.send_file(
-                chat_id,
-                file,
-                file_name=file_name,
-                force_document=True,
-                attributes=[DocumentAttributeFilename(file_name)],
-                thumb=None,
-                caption=f"Uploading chunk... {uploaded_size / total_size * 100:.2f}% complete"
-            )
-            uploaded_size += len(chunk)
-            print(f"Uploaded {uploaded_size}/{total_size} bytes")
+    def progress_callback(current, total):
+        progress_percentage = (current / total) * 100
+        print(f"Uploading... {progress_percentage:.2f}%")
+    
+    # Send the file using Telethon's upload with progress callback
+    await client.send_file(
+        chat_id,
+        file_path,
+        force_document=True,
+        attributes=[DocumentAttributeFilename(file_name)],
+        caption=f"Uploading... 0%",
+        progress_callback=progress_callback
+    )
 
 # Function to handle FloodWaitError
 async def start_bot():
