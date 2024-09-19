@@ -40,6 +40,33 @@ async def download_file_with_progress(event, url, file_name):
     # Final update after download completes
     await progress_message.edit(f"Download complete! Starting upload...")
 
+# Function to handle upload progress reporting
+async def upload_file_with_progress(event, file_name):
+    total_size = os.path.getsize(file_name)
+    uploaded_size = 0
+
+    # Send file with progress
+    async def progress_callback(uploaded, total):
+        nonlocal uploaded_size
+        uploaded_size = uploaded
+        upload_percentage = (uploaded_size / total_size) * 100
+
+        # Print upload progress in terminal
+        print(f"Uploading... {upload_percentage:.2f}%")
+
+        # Update bot message for upload progress
+        if upload_percentage < 100:
+            await progress_message.edit(f"Uploading... {upload_percentage:.2f}%")
+        else:
+            await progress_message.edit(f"Upload complete!")
+
+    # Send the file while tracking progress
+    progress_message = await event.respond(f"Uploading... 0%")
+    await client.send_file(
+        event.chat_id, file_name,
+        progress_callback=progress_callback
+    )
+
 # Event handler for '/start' command
 @client.on(events.NewMessage(pattern='/start'))
 async def start(event):
@@ -58,12 +85,9 @@ async def handle_message(event):
             # Download the file from the URL with progress reporting
             await download_file_with_progress(event, url, file_name)
 
-            # Send the file to the chat
-            await client.send_file(event.chat_id, file_name)
+            # Upload the file to Telegram with progress reporting
+            await upload_file_with_progress(event, file_name)
 
-            # Notify user of upload completion
-            await event.respond('File uploaded successfully!')
-            
             # Delete the file after sending
             os.remove(file_name)
 
