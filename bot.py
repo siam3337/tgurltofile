@@ -1,128 +1,69 @@
-from telethon import TelegramClient, events
-from telethon.errors import FloodWaitError
-import asyncio
 import os
-import time
-import requests
-from http.server import SimpleHTTPRequestHandler, HTTPServer
-from threading import Thread
+from telethon import TelegramClient, events
+import yt_dlp
+import asyncio
 
-# Telegram bot setup
+# Your Telegram API credentials from my.telegram.org
 api_id = os.getenv("API_ID")
 api_hash = os.getenv("API_HASH")
 bot_token = os.getenv("BOT_TOKEN")
 
-if not api_id or not api_hash or not bot_token:
-    raise ValueError("Your API ID, Hash, or Bot Token cannot be empty. Ensure environment variables are set correctly.")
+# Initialize the bot
+bot = TelegramClient('bot', api_id, api_hash).start(bot_token=bot_token)
 
-client = TelegramClient('bot', api_id, api_hash)
+# yt-dlp options
+ydl_opts = {
+    'outtmpl': 'downloads/%(title)s.%(ext)s',
+    'format': 'best',
+}
 
-# Function to handle file download with progress reporting
-async def download_file_with_progress(event, url, file_name):
-    file_data = requests.get(url, stream=True)
-    total_size = int(file_data.headers.get('content-length', 0))
-    downloaded_size = 0
-    progress_message = await event.respond("Downloading... 0%")  # Initial message for download progress
+# Function to download the video using yt-dlp
+async def download_video(url):
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info_dict = ydl.extract_info(url, download=True)
+        file_path = ydl.prepare_filename(info_dict)
+        return file_path
 
-    with open(file_name, 'wb') as file:
-        for chunk in file_data.iter_content(chunk_size=1024 * 1024):  # 1MB chunks
-            file.write(chunk)
-            downloaded_size += len(chunk)
-            download_percentage = (downloaded_size / total_size) * 100
-
-            # Print download progress in terminal
-            print(f"Downloading... {download_percentage:.2f}%")
-
-            # Update progress message in the bot, but only if the percentage has changed and is less than 100%
-            if download_percentage < 100:
-                await progress_message.edit(f"Downloading... {download_percentage:.2f}%")
-
-    # Final update after download completes
-    await progress_message.edit(f"Download complete! Starting upload...")
-
-# Function to handle upload progress reporting
-async def upload_file_with_progress(event, file_name):
-    total_size = os.path.getsize(file_name)
-    uploaded_size = 0
-
-    # Send file with progress
-    async def progress_callback(uploaded, total):
-        nonlocal uploaded_size
-        uploaded_size = uploaded
-        upload_percentage = (uploaded_size / total_size) * 100
-
-        # Print upload progress in terminal
-        print(f"Uploading... {upload_percentage:.2f}%")
-
-        # Update bot message for upload progress
-        if upload_percentage < 100:
-            await progress_message.edit(f"Uploading... {upload_percentage:.2f}%")
-        else:
-            await progress_message.edit(f"Upload complete!")
-
-    # Send the file while tracking progress
-    progress_message = await event.respond(f"Uploading... 0%")
-    await client.send_file(
-        event.chat_id, file_name,
-        progress_callback=progress_callback
-    )
-
-# Event handler for '/start' command
-@client.on(events.NewMessage(pattern='/start'))
+@bot.on(events.NewMessage(pattern='/start'))
 async def start(event):
-    await event.respond('Hello! Send me a URL to upload a file.')
+    await event.respond("Hello! Send me a video link and I'll download it for you!")
+    
+@bot.on(events.NewMessage)
+async def handle_video(event):
+    url = event.message.message.strip()
 
-# Event handler for receiving URLs and uploading files
-@client.on(events.NewMessage)
-async def handle_message(event):
-    if event.message.message.startswith('http'):
-        await event.respond('URL received. Starting file download...')
-        
-        url = event.message.message  # Get the URL from the message
-        file_name = url.split('/')[-1]  # Extract a file name from the URL
-        
-        try:
-            # Download the file from the URL with progress reporting
-            await download_file_with_progress(event, url, file_name)
+    # Checking if the message is a valid URL
+    if not url.startswith('http'):
+        await event.respond("Please send a valid URL.")
+        return
 
-            # Upload the file to Telegram with progress reporting
-            await upload_file_with_progress(event, file_name)
+    await event.respond("Downloading... Please wait...")
 
-            # Delete the file after sending
-            os.remove(file_name)
-
-        except Exception as e:
-            await event.respond(f"An error occurred: {str(e)}")
-    else:
-        await event.respond('Please send a valid URL.')
-
-# Function to handle FloodWaitError
-async def start_bot():
+    # Download the video
     try:
-        await client.start(bot_token=bot_token)
-        print("Bot started successfully!")
-        await client.run_until_disconnected()
-    except FloodWaitError as e:
-        print(f"FloodWaitError: Waiting for {e.seconds} seconds.")
-        time.sleep(e.seconds)  # Wait for the required time
-        await start_bot()  # Retry after the wait time
+        file_path = await download_video(url)
+    except Exception as e:
+        await event.respond(f"Error downloading video: {str(e)}")
+        return
 
-# Function to run the simple health check server
-def run_health_check_server():
-    server = HTTPServer(('0.0.0.0', 8000), SimpleHTTPRequestHandler)
-    print("Health check server is running on port 8000.")
-    server.serve_forever()
+    # Check the file size and upload accordingly
+    file_size = os.path.getsize(file_path)
+    max_file_size = 2 * 1024 * 1024 * 1024  # 2GB
 
-# Main function
-async def main():
-    # Start the health check server in a separate thread
-    server_thread = Thread(target=run_health_check_server)
-    server_thread.daemon = True
-    server_thread.start()
+    if file_size <= max_file_size:
+        await event.respond("Uploading the video...")
 
-    # Start the Telegram bot
-    await start_bot()
+        # Upload the file using Telethon
+        try:
+            await bot.send_file(event.chat_id, file_path, caption="Here is your video!")
+        except Exception as e:
+            await event.respond(f"Error uploading video: {str(e)}")
+    else:
+        await event.respond("The video is too large to be sent through Telegram (over 2GB). Please try a smaller video.")
+    
+    # Clean up the downloaded file
+    os.remove(file_path)
 
-if __name__ == '__main__':
-    # Run the asyncio event loop
-    asyncio.run(main())
+# Start the bot
+print("Bot is running...")
+bot.run_until_disconnected()
