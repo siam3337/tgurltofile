@@ -25,46 +25,56 @@ async def start(event):
 @client.on(events.NewMessage)
 async def handle_message(event):
     if event.message.message.startswith('http'):
-        await event.respond('URL received. Starting file upload...')
-        
+        await event.respond('URL received. Starting file download...')
+
         url = event.message.message  # Get the URL from the message
         file_name = url.split('/')[-1]  # Extract a file name from the URL
-        
+
         try:
-            # Download the file from the URL
-            file_data = requests.get(url, stream=True)
-            if file_data.status_code == 200:
-                total_size = int(file_data.headers.get('content-length', 0))
-                downloaded_size = 0
-                with open(file_name, 'wb') as file:
-                    for chunk in file_data.iter_content(chunk_size=1024 * 1024):  # 1MB chunks
-                        file.write(chunk)
-                        downloaded_size += len(chunk)
-                        print(f"Downloaded {downloaded_size}/{total_size} bytes")
-                
-                # Send the file to the chat and track progress
-                await send_file_with_progress(event, file_name, total_size)
-                
-                # Delete the file after sending
-                os.remove(file_name)
-            else:
-                await event.respond(f"Failed to download the file. HTTP Status: {file_data.status_code}")
-        
+            # Download the file from the URL and show download progress
+            await download_file_with_progress(event, url, file_name)
+
+            # Send the file to the chat and track upload progress
+            await send_file_with_progress(event, file_name)
+
+            # Delete the file after sending
+            os.remove(file_name)
         except Exception as e:
             await event.respond(f"An error occurred: {str(e)}")
     else:
         await event.respond('Please send a valid URL.')
 
+# Function to download file with progress reporting in terminal and bot
+async def download_file_with_progress(event, url, file_name):
+    file_data = requests.get(url, stream=True)
+    total_size = int(file_data.headers.get('content-length', 0))
+    downloaded_size = 0
+    progress_message = await event.respond("Downloading... 0%")  # Initial message for download progress
+
+    with open(file_name, 'wb') as file:
+        for chunk in file_data.iter_content(chunk_size=1024 * 1024):  # 1MB chunks
+            file.write(chunk)
+            downloaded_size += len(chunk)
+            download_percentage = (downloaded_size / total_size) * 100
+
+            # Print download progress in terminal
+            print(f"Downloading... {download_percentage:.2f}%")
+
+            # Update progress message in the bot
+            await progress_message.edit(f"Downloading... {download_percentage:.2f}%")
+
+    await progress_message.edit(f"Download complete! Starting upload...")
+
 # Function to send file with progress reporting in terminal and bot
-async def send_file_with_progress(event, file_path, total_size):
+async def send_file_with_progress(event, file_path):
     file_name = os.path.basename(file_path)
-    progress_message = await event.respond("Uploading... 0%")  # Initial message
+    progress_message = await event.respond("Uploading... 0%")  # Initial message for upload progress
 
     def progress_callback(current, total):
-        progress_percentage = (current / total) * 100
-        print(f"Uploading... {progress_percentage:.2f}%")  # Print progress in terminal
+        upload_percentage = (current / total) * 100
+        print(f"Uploading... {upload_percentage:.2f}%")  # Print upload progress in terminal
         # Update progress message in the bot
-        asyncio.ensure_future(progress_message.edit(f"Uploading... {progress_percentage:.2f}%"))
+        asyncio.ensure_future(progress_message.edit(f"Uploading... {upload_percentage:.2f}%"))
 
     # Send the file using Telethon's upload with progress callback
     await client.send_file(
@@ -74,6 +84,8 @@ async def send_file_with_progress(event, file_path, total_size):
         attributes=[DocumentAttributeFilename(file_name)],
         progress_callback=progress_callback  # Show progress in both terminal and bot
     )
+
+    await progress_message.edit("File uploaded successfully!")
 
 # Function to handle FloodWaitError
 async def start_bot():
