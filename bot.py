@@ -97,8 +97,9 @@ def run_flask():
 
 # Start both Flask and Telegram bot
 if __name__ == '__main__':
-    # Start Flask in a separate thread
+    # Start Flask in a separate thread, set daemon to True
     flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
     flask_thread.start()
 
     # Start the Telegram bot
