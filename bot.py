@@ -24,7 +24,7 @@ bot = TelegramClient('bot', api_id, api_hash).start(bot_token=bot_token)
 # yt-dlp options
 ydl_opts = {
     'outtmpl': os.path.join(DOWNLOAD_FOLDER, '%(title)s.%(ext)s'),
-    'format': 'best',
+    'format': 'bestvideo+bestaudio/best',
 }
 
 # Function to download the video using yt-dlp
