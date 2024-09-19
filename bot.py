@@ -1,24 +1,28 @@
 import os
+import random
+import string
 from telethon import TelegramClient, events
 import yt_dlp
-import asyncio
 from flask import Flask, send_from_directory
-from urllib.parse import quote
 
 # Your Telegram API credentials from my.telegram.org
 api_id = os.getenv("API_ID")
 api_hash = os.getenv("API_HASH")
 bot_token = os.getenv("BOT_TOKEN")
 
+# Initialize Flask app
+app = Flask(__name__)
+
+# Folder to store downloads
+DOWNLOAD_FOLDER = 'downloads'
+os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
+
 # Initialize the bot
 bot = TelegramClient('bot', api_id, api_hash).start(bot_token=bot_token)
 
-# Flask app to serve files
-app = Flask(__name__)
-
 # yt-dlp options
 ydl_opts = {
-    'outtmpl': 'downloads/%(title)s.%(ext)s',
+    'outtmpl': os.path.join(DOWNLOAD_FOLDER, '%(title)s.%(ext)s'),
     'format': 'best',
 }
 
@@ -26,9 +30,18 @@ ydl_opts = {
 async def download_video(url):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info_dict = ydl.extract_info(url, download=True)
-        file_path = ydl.prepare_filename(info_dict)
-        return file_path
+        original_file_path = ydl.prepare_filename(info_dict)
+        
+        # Rename the file to a random 8-character string
+        random_name = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+        ext = os.path.splitext(original_file_path)[1]
+        new_file_name = random_name + ext
+        new_file_path = os.path.join(DOWNLOAD_FOLDER, new_file_name)
+        os.rename(original_file_path, new_file_path)
+        
+        return new_file_name
 
+# Telegram bot event handlers
 @bot.on(events.NewMessage(pattern='/start'))
 async def start(event):
     await event.respond("Hello! Send me a video link and I'll download it for you!")
@@ -46,14 +59,15 @@ async def handle_video(event):
 
     # Download the video
     try:
-        file_path = await download_video(url)
+        new_file_name = await download_video(url)
     except Exception as e:
         await event.respond(f"Error downloading video: {str(e)}")
         return
 
-    # Check the file size and upload accordingly
+    # Get the file path and size
+    file_path = os.path.join(DOWNLOAD_FOLDER, new_file_name)
     file_size = os.path.getsize(file_path)
-    max_file_size = 50 * 1024 * 1024  # 50 MB
+    max_file_size = 50 * 1024 * 1024  # 50MB
 
     if file_size <= max_file_size:
         await event.respond("Uploading the video...")
@@ -64,25 +78,18 @@ async def handle_video(event):
         except Exception as e:
             await event.respond(f"Error uploading video: {str(e)}")
     else:
-        # Create a download link for files larger than 50 MB
-        encoded_filename = quote(os.path.basename(file_path))  # Encode the file name for the URL
-        download_link = f"https://sonic-bot.koyeb.app/download/{encoded_filename}"
+        # Generate a download link if the file is larger than 50MB
+        download_link = f"https://sonic-bot.koyeb.app/download/{new_file_name}"
         await event.respond(f"The video is too large to be sent directly. You can download it from this link: {download_link}")
     
     # Clean up the downloaded file
-    os.remove(file_path)
+    # Optionally, you can delete the file after sending the link or leave it for later use
 
-# Flask route to serve the downloaded file
+# Flask route to serve downloaded files
 @app.route('/download/<filename>')
 def download_file(filename):
-    return send_from_directory('downloads', filename, as_attachment=True)
+    return send_from_directory(DOWNLOAD_FOLDER, filename)
 
-# Start the bot and the Flask server
+# Start the Flask app on port 8000
 if __name__ == '__main__':
-    print("Bot and Flask server are running...")
-
-    # Run the Telegram bot
-    bot.start()
-
-    # Run Flask on port 8000
-    app.run(host="0.0.0.0", port=8000)
+    app.run(host='0.0.0.0', port=8000)
