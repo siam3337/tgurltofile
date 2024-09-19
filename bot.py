@@ -2,7 +2,7 @@ import os
 from telethon import TelegramClient, events
 import yt_dlp
 import asyncio
-from flask import Flask
+from flask import Flask, send_from_directory
 from threading import Thread
 
 # Your Telegram API credentials from my.telegram.org
@@ -29,7 +29,7 @@ async def download_video(url):
 @bot.on(events.NewMessage(pattern='/start'))
 async def start(event):
     await event.respond("Hello! Send me a video link and I'll download it for you!")
-    
+
 @bot.on(events.NewMessage)
 async def handle_video(event):
     url = event.message.message.strip()
@@ -48,9 +48,9 @@ async def handle_video(event):
         await event.respond(f"Error downloading video: {str(e)}")
         return
 
-    # Check the file size and upload accordingly
+    # Check the file size
     file_size = os.path.getsize(file_path)
-    max_file_size = 2 * 1024 * 1024 * 1024  # 2GB
+    max_file_size = 50 * 1024 * 1024  # 50 MB
 
     if file_size <= max_file_size:
         await event.respond("Uploading the video...")
@@ -61,17 +61,23 @@ async def handle_video(event):
         except Exception as e:
             await event.respond(f"Error uploading video: {str(e)}")
     else:
-        await event.respond("The video is too large to be sent through Telegram (over 2GB). Please try a smaller video.")
+        # Create a download link for large files
+        download_link = f"https://sonic-bot.koyeb.app/download/{os.path.basename(file_path)}"
+        await event.respond(f"The video is too large to be sent directly. You can download it from this link: {download_link}")
     
     # Clean up the downloaded file
     os.remove(file_path)
 
-# Flask app to respond to health checks
+# Flask app to respond to health checks and provide downloads
 app = Flask(__name__)
 
 @app.route('/')
 def index():
     return "Bot is running", 200
+
+@app.route('/download/<filename>')
+def download_file(filename):
+    return send_from_directory('downloads', filename, as_attachment=True)
 
 # Function to run Flask app in a separate thread
 def run_flask():
