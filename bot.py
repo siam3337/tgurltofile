@@ -43,9 +43,7 @@ async def handle_message(event):
                         print(f"Downloaded {downloaded_size}/{total_size} bytes")
                 
                 # Send the file to the chat and track progress
-                await event.respond('Starting file upload...')
-                await send_file_with_progress(event.chat_id, file_name, total_size)
-                await event.respond('File uploaded successfully!')
+                await send_file_with_progress(event, file_name, total_size)
                 
                 # Delete the file after sending
                 os.remove(file_name)
@@ -57,22 +55,24 @@ async def handle_message(event):
     else:
         await event.respond('Please send a valid URL.')
 
-# Function to send file with progress reporting
-async def send_file_with_progress(chat_id, file_path, total_size):
+# Function to send file with progress reporting in terminal and bot
+async def send_file_with_progress(event, file_path, total_size):
     file_name = os.path.basename(file_path)
+    progress_message = await event.respond("Uploading... 0%")  # Initial message
 
     def progress_callback(current, total):
         progress_percentage = (current / total) * 100
-        print(f"Uploading... {progress_percentage:.2f}%")
-    
+        print(f"Uploading... {progress_percentage:.2f}%")  # Print progress in terminal
+        # Update progress message in the bot
+        asyncio.ensure_future(progress_message.edit(f"Uploading... {progress_percentage:.2f}%"))
+
     # Send the file using Telethon's upload with progress callback
     await client.send_file(
-        chat_id,
+        event.chat_id,
         file_path,
         force_document=True,
         attributes=[DocumentAttributeFilename(file_name)],
-        caption=f"Uploading... 0%",
-        progress_callback=progress_callback
+        progress_callback=progress_callback  # Show progress in both terminal and bot
     )
 
 # Function to handle FloodWaitError
