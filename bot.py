@@ -1,6 +1,7 @@
 import os
 import random
 import string
+import threading
 from telethon import TelegramClient, events
 import yt_dlp
 from flask import Flask, send_from_directory
@@ -90,6 +91,16 @@ async def handle_video(event):
 def download_file(filename):
     return send_from_directory(DOWNLOAD_FOLDER, filename)
 
-# Start the Flask app on port 8000
-if __name__ == '__main__':
+# Function to run Flask in a separate thread
+def run_flask():
     app.run(host='0.0.0.0', port=8000)
+
+# Start both Flask and Telegram bot
+if __name__ == '__main__':
+    # Start Flask in a separate thread
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.start()
+
+    # Start the Telegram bot
+    print("Bot is running...")
+    bot.run_until_disconnected()
