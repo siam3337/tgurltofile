@@ -2,7 +2,7 @@ import os
 import telebot
 import requests
 import dropbox
-import libtorrent as lt
+
 import time
 from flask import Flask
 import threading
