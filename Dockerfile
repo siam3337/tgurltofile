@@ -11,14 +11,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Install Flask for a dummy web server
 RUN pip install flask
 
-# Copy the bot script
+# Copy bot script and server script
 COPY bot.py .
+COPY server.py .
 
-# Create a dummy Flask server
-RUN echo 'from flask import Flask; app = Flask(__name__); @app.route("/")\ndef home(): return "Bot is running!"; app.run(host="0.0.0.0", port=8000)' > server.py
-
-# Expose port 8080
+# Expose port 8000 for Koyeb
 EXPOSE 8000
 
-# Run the Telegram bot and the Flask web server in parallel
+# Run both the Telegram bot and Flask server
 CMD ["sh", "-c", "python bot.py & python server.py"]
