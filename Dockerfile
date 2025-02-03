@@ -11,12 +11,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Install Flask for a dummy web server
 RUN pip install flask
 
-# Copy bot script and server script
+# Copy the bot script
 COPY bot.py .
+
+# Copy server.py for Flask
 COPY server.py .
 
-# Expose port 8000 for Koyeb
+# Expose port 8000
 EXPOSE 8000
 
-# Show all running processes for debugging
-CMD ["sh", "-c", "python server.py & sleep 5 && netstat -tulnp && python bot.py"]
+# Set the command to run the application
+CMD ["python", "server.py"]
