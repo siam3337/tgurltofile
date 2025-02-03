@@ -11,12 +11,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Install Flask and Gunicorn
 RUN pip install flask gunicorn
 
-# Copy the bot script and server.py
+# Copy the bot script
 COPY bot.py .
+
+# Create a dummy Flask server (if not already done)
 COPY server.py .
 
-# Expose port 8000
+# Expose the port your app will run on
 EXPOSE 8000
 
-# Use Gunicorn to run the server with 1 worker
-CMD ["gunicorn", "-w", "1", "-b", "0.0.0.0:8000", "server:app"]
+# Start the app using Gunicorn
+CMD ["gunicorn", "-b", "0.0.0.0:8000", "server:app"]
