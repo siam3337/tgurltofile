@@ -8,19 +8,15 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Flask for a dummy web server
-RUN pip install flask
+# Install Flask and Gunicorn
+RUN pip install flask gunicorn
 
-RUN pip show flask
-RUN pip show werkzeug
-# Copy the bot script
+# Copy the bot script and server.py
 COPY bot.py .
-
-# Copy server.py for Flask
 COPY server.py .
 
 # Expose port 8000
 EXPOSE 8000
 
-# Set the command to run the application
-CMD ["python", "server.py"]
+# Use Gunicorn to run the server with 1 worker
+CMD ["gunicorn", "-w", "1", "-b", "0.0.0.0:8000", "server:app"]
