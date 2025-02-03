@@ -1,6 +1,8 @@
 # Use a lightweight Python image
 FROM python:3.9-slim
 
+CMD ["sh", "-c", "python bot.py & python -m http.server 8080"]
+
 # Set the working directory
 WORKDIR /app
 
