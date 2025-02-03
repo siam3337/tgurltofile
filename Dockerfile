@@ -11,6 +11,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Install Flask for a dummy web server
 RUN pip install flask
 
+RUN pip show flask
+RUN pip show werkzeug
 # Copy the bot script
 COPY bot.py .
 
