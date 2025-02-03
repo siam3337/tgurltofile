@@ -18,5 +18,5 @@ COPY server.py .
 # Expose port 8000 for Koyeb
 EXPOSE 8000
 
-# Run both the Telegram bot and Flask server
-CMD ["sh", "-c", "python bot.py & python server.py"]
+# Run the Telegram bot and Flask server in parallel
+CMD ["sh", "-c", "python server.py & python bot.py"]
