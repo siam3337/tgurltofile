@@ -2,3 +2,4 @@ python-telegram-bot==20.0
 requests==2.31.0
 dropbox==11.35.0
 Flask==2.2.3
+Werkzeug==2.0.3
