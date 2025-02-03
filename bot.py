@@ -1,169 +1,183 @@
+import io
 import os
-import telebot
+import time
 import requests
 import dropbox
-from flask import Flask
+from urllib.parse import urlparse, unquote
+from telegram import Update
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
+)
 
-import time
-from flask import Flask
-import threading
+# Telegram bot token
+TELEGRAM_BOT_TOKEN = "5876860733:AAFAPmqGHd0NDI-tatG8FboMuMEwE9dOGYA"
 
-# Load sensitive credentials from environment variables
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-DROPBOX_ACCESS_TOKEN = os.getenv("DROPBOX_ACCESS_TOKEN")
+# Dropbox app details
+DROPBOX_APP_KEY = "qn3u4wga5xdnddb"
+DROPBOX_APP_SECRET = "lqyvaqnyt0awq2j"
+DROPBOX_REFRESH_TOKEN = "NEReugJNNk0AAAAAAAAAASxTLjMHAajJw6li26I940g06Vthh9L86TJ7vnxr1k-0"
+ACCESS_TOKEN = None  # Updated dynamically
 
-# Validate environment variables
-if not TELEGRAM_BOT_TOKEN or not DROPBOX_ACCESS_TOKEN:
-    raise Exception("Environment variables TELEGRAM_BOT_TOKEN and DROPBOX_ACCESS_TOKEN are required!")
+# Refresh Dropbox token
+def refresh_dropbox_token():
+    global ACCESS_TOKEN
+    url = "https://api.dropbox.com/oauth2/token"
+    data = {
+        "grant_type": "refresh_token",
+        "refresh_token": DROPBOX_REFRESH_TOKEN,
+        "client_id": DROPBOX_APP_KEY,
+        "client_secret": DROPBOX_APP_SECRET,
+    }
+    response = requests.post(url, data=data)
+    if response.status_code == 200:
+        ACCESS_TOKEN = response.json()["access_token"]
+    else:
+        raise Exception(f"Failed to refresh Dropbox token: {response.json()}")
 
-# Initialize Telegram bot and Dropbox client
-bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
-dbx = dropbox.Dropbox(DROPBOX_ACCESS_TOKEN)
+# Modify Dropbox URL for different purposes
+def modify_dropbox_url(original_url, mode="download"):
+    modified_url = original_url.replace("www.dropbox.com", "dl.dropboxusercontent.com")
+    if mode == "download":
+        return modified_url.replace("dl=0", "dl=1") if "dl=" in modified_url else modified_url + "&dl=1"
+    elif mode == "stream":
+        return modified_url.replace("dl=1", "dl=0") if "dl=" in modified_url else modified_url + "&dl=0"
 
-CHUNK_SIZE = 4 * 1024 * 1024  # 4 MB
+# Shorten URLs using TinyURL API
+def shorten_url_with_tinyurl(long_url):
+    api_url = f"https://tinyurl.com/api-create.php?url={long_url}"
+    response = requests.get(api_url)
+    if response.status_code == 200:
+        return response.text
+    return long_url  # Return original if TinyURL fails
 
-# Flask app for health checks
-app = Flask(__name__)
+# Sanitize filename
+def get_clean_filename(url):
+    parsed_url = urlparse(url)
+    filename = os.path.basename(parsed_url.path)
+    filename = unquote(filename)
+    filename = filename.split('?')[0]  # Remove query parameters
+    return filename
 
-@app.route("/health")
-def health():
-    return "OK", 200
+# Stream file to Dropbox in chunks with progress
+async def stream_file_to_dropbox(update, url, dropbox_path):
+    dbx = dropbox.Dropbox(ACCESS_TOKEN)
+    chunk_size = 10 * 1024 * 1024  # 10 MB
 
-def start_flask():
-    app.run(host="0.0.0.0", port=8000)
+    # Start the session by uploading the first chunk
+    response = requests.get(url, stream=True)
+    response.raise_for_status()
 
-# (Rest of the code remains unchanged from the previously provided code)
-# Includes `stream_upload_to_dropbox`, `stream_torrent_to_dropbox`, 
-# and all Telegram bot handlers.
+    # Get the total file size
+    total_size = int(response.headers.get("Content-Length", 0))
+    downloaded_size = 0
 
-# Function to upload a file to Dropbox with progress updates
-def stream_upload_to_dropbox(url, dropbox_path, chat_id):
-    with requests.get(url, stream=True) as response:
-        if response.status_code != 200:
-            raise Exception(f"Failed to download URL: {response.status_code}")
+    file_iter = response.iter_content(chunk_size=chunk_size)
 
-        file_size = int(response.headers.get("Content-Length", 0))
-        uploaded_size = 0
-        upload_session_start_result = None
-        file_iter = response.iter_content(CHUNK_SIZE)
+    # Read the first chunk
+    first_chunk = next(file_iter, None)
+    if first_chunk is None:
+        raise Exception("Failed to read the file for upload.")
 
-        try:
-            # Start the upload session
-            chunk = next(file_iter)
-            upload_session_start_result = dbx.files_upload_session_start(chunk)
-            cursor = dropbox.files.UploadSessionCursor(
-                session_id=upload_session_start_result.session_id,
-                offset=len(chunk),
+    # Create progress message
+    progress_message = await update.message.reply_text("Progress: Download 0.00%, Upload 0.00%")
+    last_update_time = time.time()
+
+    # Start the session
+    session_start_result = dbx.files_upload_session_start(first_chunk)
+    session_id = session_start_result.session_id
+    downloaded_size += len(first_chunk)
+
+    # Upload subsequent chunks
+    cursor = dropbox.files.UploadSessionCursor(session_id=session_id, offset=len(first_chunk))
+    while True:
+        chunk = next(file_iter, None)
+        if chunk is None:
+            break
+        downloaded_size += len(chunk)
+
+        # Update progress every 5 seconds
+        if time.time() - last_update_time >= 5:
+            await progress_message.edit_text(
+                f"Progress: Download {downloaded_size / total_size * 100:.2f}%, "
+                f"Upload {cursor.offset / total_size * 100:.2f}%"
             )
-            uploaded_size += len(chunk)
-            bot.send_message(chat_id, f"Uploaded: {uploaded_size / file_size * 100:.2f}%")
+            last_update_time = time.time()
 
-            # Upload remaining chunks
-            for chunk in file_iter:
-                dbx.files_upload_session_append_v2(chunk, cursor)
-                cursor.offset += len(chunk)
-                uploaded_size += len(chunk)
-                bot.send_message(chat_id, f"Uploaded: {uploaded_size / file_size * 100:.2f}%")
+        dbx.files_upload_session_append_v2(chunk, cursor)
+        cursor.offset += len(chunk)
 
-            # Finish the upload
-            dbx.files_upload_session_finish(
-                b"",
-                cursor,
-                dropbox.files.CommitInfo(path=dropbox_path),
-            )
-        except StopIteration:
-            pass
+    # Finish the session
+    commit_info = dropbox.files.CommitInfo(path=dropbox_path)
+    dbx.files_upload_session_finish(chunk, cursor, commit_info)
 
-    # Get Dropbox shared link
-    shared_link = dbx.sharing_create_shared_link_with_settings(dropbox_path).url
+    # Delete progress message
+    await progress_message.delete()
 
-    # Modify the link to the desired format
-    modified_link = shared_link.replace(
-        "www.dropbox.com", "dl.dropboxusercontent.com"
-    ).replace("dl=0", "dl=1")
+    # Create a shared link for the file
+    shared_link = dbx.sharing_create_shared_link_with_settings(dropbox_path)
+    
+    # Generate both links
+    direct_download_link = modify_dropbox_url(shared_link.url, mode="download")
+    live_stream_link = modify_dropbox_url(shared_link.url, mode="stream")
 
-    return modified_link
+    # Shorten both links
+    short_direct_download = shorten_url_with_tinyurl(direct_download_link)
+    short_live_stream = shorten_url_with_tinyurl(live_stream_link)
 
-# Function to handle torrent upload to Dropbox
-def stream_torrent_to_dropbox(magnet_link, dropbox_folder, chat_id):
-    session = lt.session()
-    session.listen_on(6881, 6891)
-    params = {"save_path": "./downloads"}
-    handle = lt.add_magnet_uri(session, magnet_link, params)
+    return short_direct_download, short_live_stream
 
-    while not handle.has_metadata():
-        time.sleep(1)
+# Start command handler
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Send me a URL, and I'll upload the file to Dropbox for you!")
 
-    torrent_info = handle.get_torrent_info()
-    file_list = torrent_info.files()
-    total_size = sum(f.size for f in file_list)
+# URL message handler
+async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    url = update.message.text
 
-    bot.send_message(chat_id, f"Starting torrent download: {total_size / (1024 * 1024):.2f} MB")
+    # Check if the URL is valid
+    if not url.startswith("http"):
+        await update.message.reply_text("Please send a valid URL.")
+        return
 
-    for f in file_list:
-        file_path = f.path
-        full_path = os.path.join(params["save_path"], file_path)
+    await update.message.reply_text("Downloading and uploading the file...")
 
-        while not os.path.exists(full_path):
-            time.sleep(1)
-
-        # Stream file to Dropbox
-        dropbox_path = f"{dropbox_folder}/{os.path.basename(file_path)}"
-        shared_link = stream_upload_to_dropbox(full_path, dropbox_path, chat_id)
-
-        return f"Torrent successfully uploaded to Dropbox: {shared_link}"
-
-# Telegram bot handlers
-@bot.message_handler(commands=["start"])
-def send_welcome(message):
-    bot.reply_to(message, "Send me a video URL or a torrent magnet link, and I'll upload it to Dropbox!")
-
-@bot.message_handler(func=lambda message: message.text.startswith("http"))
-def handle_url(message):
-    url = message.text
     try:
-        bot.reply_to(message, "Uploading URL directly to Dropbox...")
-        file_name = url.split("/")[-1]
+        # Refresh Dropbox token
+        refresh_dropbox_token()
+
+        # Get a clean filename
+        file_name = get_clean_filename(url)
+
+        # Set the Dropbox path
         dropbox_path = f"/{file_name}"
-        shared_link = stream_upload_to_dropbox(url, dropbox_path, message.chat.id)
-        bot.reply_to(message, f"Upload complete! Download link: {shared_link}")
+
+        # Stream and upload the file to Dropbox
+        short_direct_download, short_live_stream = await stream_file_to_dropbox(update, url, dropbox_path)
+
+        # Send the shortened links to the user
+        await update.message.reply_text(
+            f"✅ **File Uploaded Successfully!**\n\n"
+            f"📥 **Direct Download Link:**\n{short_direct_download}\n\n"
+            f"▶️ **Live Stream Link:**\n{short_live_stream}"
+        )
+
     except Exception as e:
-        bot.reply_to(message, f"Error: {e}")
+        await update.message.reply_text(f"Error: {str(e)}")
 
-@bot.message_handler(func=lambda message: message.text.startswith("magnet:?"))
-def handle_magnet(message):
-    magnet_link = message.text
-    try:
-        bot.reply_to(message, "Uploading torrent to Dropbox...")
-        response = stream_torrent_to_dropbox(magnet_link, "/Torrent_Files", message.chat.id)
-        bot.reply_to(message, response)
-    except Exception as e:
-        bot.reply_to(message, f"Error: {e}")
+# Main function to start the bot
+def main():
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-@bot.message_handler(content_types=["document"])
-def handle_torrent_file(message):
-    try:
-        file_info = bot.get_file(message.document.file_id)
-        downloaded_file = bot.download_file(file_info.file_path)
+    # Handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
 
-        # Save .torrent file locally
-        torrent_file_path = f"./{message.document.file_name}"
-        with open(torrent_file_path, "wb") as f:
-            f.write(downloaded_file)
+    # Start the bot
+    application.run_polling()
 
-        # Parse .torrent file
-        bot.reply_to(message, "Uploading torrent to Dropbox...")
-        response = stream_torrent_to_dropbox(torrent_file_path, "/Torrent_Files", message.chat.id)
-        bot.reply_to(message, response)
-
-        # Clean up
-        os.remove(torrent_file_path)
-    except Exception as e:
-        bot.reply_to(message, f"Error: {e}")
-
-# Run Flask server in a thread
-threading.Thread(target=start_flask).start()
-
-# Start the Telegram bot
-print("Bot is running...")
-bot.infinity_polling()
+if __name__ == "__main__":
+    main()
