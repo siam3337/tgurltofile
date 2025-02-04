@@ -11,6 +11,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt  
 RUN pip install gunicorn flask  
 
+RUN chmod +x start.sh  
+CMD ./start.sh
 # Copy application files
 COPY bot.py .  
 COPY server.py .  
