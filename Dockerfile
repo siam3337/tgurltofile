@@ -1,24 +1,23 @@
 # Use a lightweight Python image
-FROM python:3.9-slim  
+FROM python:3.9-slim
 
 # Set working directory
-WORKDIR /app  
+WORKDIR /app
 
-# Copy dependencies
-COPY requirements.txt .  
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Install dependencies, including Flask & Gunicorn
-RUN pip install --no-cache-dir -r requirements.txt  
-RUN pip install gunicorn flask  
+# Install supervisor
+RUN apt-get update && apt-get install -y supervisor && rm -rf /var/lib/apt/lists/*
 
-RUN chmod +x start.sh  
-CMD ./start.sh
 # Copy application files
-COPY bot.py .  
-COPY server.py .  
+COPY bot.py .
+COPY server.py .
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# Expose the Flask port
-EXPOSE 8000  
+# Expose port 8000 for Flask
+EXPOSE 8000
 
-# Run the Flask app using Gunicorn
-CMD gunicorn --bind 0.0.0.0:8000 server:app & python bot.py
+# Start supervisor
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
