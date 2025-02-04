@@ -19,4 +19,4 @@ COPY server.py .
 EXPOSE 8000  
 
 # Run the Flask app using Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "server:app"]
+CMD gunicorn --bind 0.0.0.0:8000 server:app & python bot.py
