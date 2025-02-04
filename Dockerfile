@@ -6,12 +6,12 @@ WORKDIR /app
 
 # Copy dependencies
 COPY requirements.txt .  
+
+# Install dependencies, including Flask & Gunicorn
 RUN pip install --no-cache-dir -r requirements.txt  
+RUN pip install gunicorn flask  
 
-# Install Flask and Gunicorn
-RUN pip install flask gunicorn  
-
-# Copy the app files
+# Copy application files
 COPY bot.py .  
 COPY server.py .  
 
