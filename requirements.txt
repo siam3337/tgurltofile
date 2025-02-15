@@ -4,3 +4,6 @@ dropbox==11.35.0
 Flask==2.2.3
 Werkzeug==2.2.2
 gunicorn
+telebot==0.0.5
+yt-dlp==2023.11.16
+uuid==1.30
